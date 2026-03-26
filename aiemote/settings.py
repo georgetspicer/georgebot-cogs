@@ -80,12 +80,8 @@ class Settings:
     async def optin_by_default(self, ctx: commands.Context):
         """Toggles whether users are opted in by default in this server
 
-        This command is disabled for servers with more than 150 members.
+        This command is disabled for servers with more than 150 members, but George says you can :3
         """
-        if len(ctx.guild.members) > 150:
-            return await ctx.send(
-                "You cannot enable this setting for servers with more than 150 members."
-            )
         value = not await self.config.guild(ctx.guild).optin_by_default()
         await self.config.guild(ctx.guild).optin_by_default.set(value)
         embed = discord.Embed(
