@@ -287,6 +287,13 @@ class Chatter(Cog):
             await self.config.guild(ctx.guild).chatchannel.set(channel.id)
             await ctx.maybe_send_embed(f"Chat channel is now {channel.mention}")
 
+    @commands.is_owner()
+    @chatter.command(name="diagnostic")
+    async def chatter_diagnostic(self, ctx: commands.Context):
+        """Run diagnostic checks on all chatter components"""
+        from chatter.chatter_diagnostics import chatter_diagnostic_command
+        await chatter_diagnostic_command(self, ctx)
+
     @commands.admin()
     @chatter.command(name="reply")
     async def chatter_reply(self, ctx: commands.Context, toggle: Optional[bool] = None):
