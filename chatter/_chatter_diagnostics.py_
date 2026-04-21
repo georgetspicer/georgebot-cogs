@@ -1,0 +1,323 @@
+import logging
+from typing import Dict, Any
+from chatterbot import ChatBot
+from chatterbot.conversation import Statement
+
+log = logging.getLogger("red.fox_v3.chatter.diagnostics")
+
+
+class ChatterDiagnostics:
+    """Utility to diagnose and verify each step of the Chatter cog is working correctly"""
+
+    @staticmethod
+    async def run_full_diagnostic(chatter_cog) -> Dict[str, Any]:
+        """
+        Run a complete diagnostic on all critical components.
+        
+        Returns a dict with results for each step:
+        {
+            "chatbot_initialized": bool,
+            "spacy_model_loaded": bool,
+            "similarity_algo_loaded": bool,
+            "database_accessible": bool,
+            "test_response_generated": bool,
+            "learning_functional": bool,
+            "errors": [list of error messages],
+            "summary": str
+        }
+        """
+        results = {
+            "chatbot_initialized": False,
+            "spacy_model_loaded": False,
+            "similarity_algo_loaded": False,
+            "database_accessible": False,
+            "test_response_generated": False,
+            "learning_functional": False,
+            "errors": [],
+            "summary": ""
+        }
+
+        try:
+            # Step 1: Verify ChatBot is initialized
+            if await ChatterDiagnostics._check_chatbot_initialized(chatter_cog, results):
+                results["chatbot_initialized"] = True
+                log.info("✓ ChatBot initialized successfully")
+            else:
+                results["errors"].append("ChatBot is not initialized")
+
+            # Step 2: Verify spaCy model is loaded
+            if await ChatterDiagnostics._check_spacy_model(chatter_cog, results):
+                results["spacy_model_loaded"] = True
+                log.info("✓ spaCy model loaded successfully")
+            else:
+                results["errors"].append("spaCy model failed to load")
+
+            # Step 3: Verify similarity algorithm is working
+            if await ChatterDiagnostics._check_similarity_algo(chatter_cog, results):
+                results["similarity_algo_loaded"] = True
+                log.info("✓ Similarity algorithm functional")
+            else:
+                results["errors"].append("Similarity algorithm is not functional")
+
+            # Step 4: Verify database is accessible
+            if await ChatterDiagnostics._check_database(chatter_cog, results):
+                results["database_accessible"] = True
+                log.info("✓ Database is accessible")
+            else:
+                results["errors"].append("Database is not accessible")
+
+            # Step 5: Test response generation
+            if await ChatterDiagnostics._check_response_generation(chatter_cog, results):
+                results["test_response_generated"] = True
+                log.info("✓ Response generation working")
+            else:
+                results["errors"].append("Response generation failed")
+
+            # Step 6: Test learning functionality
+            if await ChatterDiagnostics._check_learning(chatter_cog, results):
+                results["learning_functional"] = True
+                log.info("✓ Learning functionality working")
+            else:
+                results["errors"].append("Learning functionality failed")
+
+        except Exception as e:
+            log.exception("Diagnostic encountered unexpected error")
+            results["errors"].append(f"Unexpected error: {str(e)}")
+
+        # Generate summary
+        passed = sum([
+            results["chatbot_initialized"],
+            results["spacy_model_loaded"],
+            results["similarity_algo_loaded"],
+            results["database_accessible"],
+            results["test_response_generated"],
+            results["learning_functional"]
+        ])
+        total = 6
+
+        if results["errors"]:
+            results["summary"] = f"⚠️  Diagnostic completed with issues: {passed}/{total} checks passed\nErrors: {'; '.join(results['errors'])}"
+        else:
+            results["summary"] = f"✓ All diagnostic checks passed: {passed}/{total}"
+
+        log.info(results["summary"])
+        return results
+
+    @staticmethod
+    async def _check_chatbot_initialized(chatter_cog, results: Dict) -> bool:
+        """Step 1: Verify ChatBot instance exists and is of correct type"""
+        try:
+            if chatter_cog.chatbot is None:
+                results["errors"].append("ChatBot instance is None")
+                return False
+            
+            if not isinstance(chatter_cog.chatbot, ChatBot):
+                results["errors"].append(f"ChatBot is wrong type: {type(chatter_cog.chatbot)}")
+                return False
+            
+            return True
+        except Exception as e:
+            results["errors"].append(f"ChatBot check failed: {str(e)}")
+            return False
+
+    @staticmethod
+    async def _check_spacy_model(chatter_cog, results: Dict) -> bool:
+        """Step 2: Verify spaCy model is loaded and accessible"""
+        try:
+            if chatter_cog.tagger_language is None:
+                results["errors"].append("Tagger language not set")
+                return False
+            
+            model_name = chatter_cog.tagger_language.ISO_639_1
+            log.info(f"Checking spaCy model: {model_name}")
+            
+            # Check if model is accessible via chatbot storage
+            if not hasattr(chatter_cog.chatbot.storage, 'tagger'):
+                results["errors"].append("Storage doesn't have tagger attribute")
+                return False
+            
+            # Try to get a text index to verify model works
+            test_text = "Hello world"
+            try:
+                index = chatter_cog.chatbot.storage.tagger.get_text_index_string(test_text)
+                if not index:
+                    results["errors"].append("Tagger returned empty index")
+                    return False
+            except Exception as e:
+                results["errors"].append(f"Tagger failed on test text: {str(e)}")
+                return False
+            
+            return True
+        except Exception as e:
+            results["errors"].append(f"spaCy model check failed: {str(e)}")
+            return False
+
+    @staticmethod
+    async def _check_similarity_algo(chatter_cog, results: Dict) -> bool:
+        """Step 3: Verify similarity algorithm is loaded and functional"""
+        try:
+            if chatter_cog.similarity_algo is None:
+                results["errors"].append("Similarity algorithm not set")
+                return False
+            
+            algo_name = chatter_cog.similarity_algo.__name__
+            log.info(f"Checking similarity algorithm: {algo_name}")
+            
+            if chatter_cog.similarity_threshold is None or chatter_cog.similarity_threshold <= 0:
+                results["errors"].append(f"Invalid threshold: {chatter_cog.similarity_threshold}")
+                return False
+            
+            # Try instantiating the algorithm
+            try:
+                algo_instance = chatter_cog.similarity_algo()
+            except Exception as e:
+                results["errors"].append(f"Failed to instantiate algorithm: {str(e)}")
+                return False
+            
+            return True
+        except Exception as e:
+            results["errors"].append(f"Similarity algorithm check failed: {str(e)}")
+            return False
+
+    @staticmethod
+    async def _check_database(chatter_cog, results: Dict) -> bool:
+        """Step 4: Verify database file exists and is accessible"""
+        try:
+            import os
+            
+            db_path = chatter_cog.data_path
+            log.info(f"Checking database at: {db_path}")
+            
+            # Check if path is set
+            if db_path is None:
+                results["errors"].append("Database path not set")
+                return False
+            
+            # Try to access storage
+            if not hasattr(chatter_cog.chatbot, 'storage'):
+                results["errors"].append("ChatBot has no storage attribute")
+                return False
+            
+            # Try a simple storage operation
+            try:
+                # Attempt to get statement object (should not error)
+                Statement = chatter_cog.chatbot.storage.get_object("statement")
+                if Statement is None:
+                    results["errors"].append("Could not retrieve Statement object from storage")
+                    return False
+            except Exception as e:
+                results["errors"].append(f"Storage access failed: {str(e)}")
+                return False
+            
+            return True
+        except Exception as e:
+            results["errors"].append(f"Database check failed: {str(e)}")
+            return False
+
+    @staticmethod
+    async def _check_response_generation(chatter_cog, results: Dict) -> bool:
+        """Step 5: Test actual response generation with a test message"""
+        try:
+            log.info("Testing response generation...")
+            
+            test_input = "Hello"
+            Statement = chatter_cog.chatbot.storage.get_object("statement")
+            
+            # Run in executor to avoid blocking
+            loop = chatter_cog.loop
+            try:
+                response = await loop.run_in_executor(
+                    None,
+                    chatter_cog.chatbot.generate_response,
+                    Statement(test_input)
+                )
+                
+                if response is None:
+                    results["errors"].append("generate_response returned None")
+                    return False
+                
+                # Response should be a Statement or similar object
+                response_text = str(response)
+                if not response_text or response_text.strip() == "":
+                    results["errors"].append("Generated response is empty")
+                    return False
+                
+                log.info(f"Test input: '{test_input}' -> Response: '{response_text}'")
+                
+            except Exception as e:
+                results["errors"].append(f"Response generation error: {str(e)}")
+                return False
+            
+            return True
+        except Exception as e:
+            results["errors"].append(f"Response generation check failed: {str(e)}")
+            return False
+
+    @staticmethod
+    async def _check_learning(chatter_cog, results: Dict) -> bool:
+        """Step 6: Verify learning mechanism works"""
+        try:
+            log.info("Testing learning functionality...")
+            
+            Statement = chatter_cog.chatbot.storage.get_object("statement")
+            
+            test_input = "Test learning"
+            test_context = "Previous statement"
+            
+            loop = chatter_cog.loop
+            
+            try:
+                # Attempt to learn a response
+                from functools import partial
+                
+                learn_func = partial(
+                    chatter_cog.chatbot.learn_response,
+                    Statement(test_input),
+                    previous_statement=test_context
+                )
+                
+                await loop.run_in_executor(None, learn_func)
+                
+                log.info("Learning mechanism functional")
+                
+            except Exception as e:
+                results["errors"].append(f"Learning failed: {str(e)}")
+                return False
+            
+            return True
+        except Exception as e:
+            results["errors"].append(f"Learning check failed: {str(e)}")
+            return False
+
+
+# Integration with Discord command
+async def chatter_diagnostic_command(chatter_cog, ctx):
+    """
+    Discord command to run diagnostics.
+    Add this as a command to the Chatter cog:
+    
+    @commands.is_owner()
+    @chatter.command(name="diagnostic")
+    async def chatter_diagnostic(self, ctx: commands.Context):
+        '''Run diagnostic checks on all chatter components'''
+        await chatter_diagnostic_command(self, ctx)
+    """
+    async with ctx.typing():
+        results = await ChatterDiagnostics.run_full_diagnostic(chatter_cog)
+    
+    # Format output
+    status_lines = [
+        f"**Chatter Diagnostic Report**",
+        "",
+        f"ChatBot Initialized: {'✓' if results['chatbot_initialized'] else '✗'}",
+        f"spaCy Model Loaded: {'✓' if results['spacy_model_loaded'] else '✗'}",
+        f"Similarity Algorithm: {'✓' if results['similarity_algo_loaded'] else '✗'}",
+        f"Database Accessible: {'✓' if results['database_accessible'] else '✗'}",
+        f"Response Generation: {'✓' if results['test_response_generated'] else '✗'}",
+        f"Learning Functional: {'✓' if results['learning_functional'] else '✗'}",
+        "",
+        results["summary"]
+    ]
+    
+    output = "\n".join(status_lines)
+    await ctx.maybe_send_embed(output)
